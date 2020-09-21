@@ -24,6 +24,8 @@ library(caret)
 library(pROC)
 library(ResourceSelection)
 library(lmtest)
+library(sjPlot)
+library(sjmisc)
 # library(MKmisc)
 
 
@@ -500,6 +502,9 @@ is.factor(OS$breedf)
 
 model <- glm(OSf ~ breedf, data = OS, family = binomial)
 
+#check that R is not dropping any breeds with zero cases 
+nobs(model)
+
 # Calculate p-value for model
 # In R, the most common way to calculate the p-value for a fitted model is to compare the fitted model to a null 
 # model with the anova function.
@@ -773,6 +778,9 @@ OS <- OS[,6:9]
 
 multi_model <- glm(OSf ~. , data = OS, family = binomial(link="logit"))
 
+##NB we cannot do pairwise inteactions as there are too many categories in the breed variable, we will do this 
+#for the smaller models 
+
 #to get the p-value for each variable in the multivariate model we run the model without that variable then compare to multi_model using 
 # liklihood ratio test
 
@@ -823,8 +831,6 @@ car::vif(multi_model)
 
 ######### 3b. Purebred Model 
 
-# rm(list=ls())
-
 OS <- OS2
 
 #Select chosen variables
@@ -869,9 +875,46 @@ OS <- OS[,6:9]
 
 multi_model <- glm(OSf ~. , data = OS, family = binomial(link="logit"))
 
-#get the lrtest for the purebred variable 
+multi_pure_noI <- multi_model
+
+##save the model without interactions in it 
+# write.table(multi_pure_noI, "./analysis/multi_reg_purebred.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+
+#get the lrtest to get an overall p-value for the purebred variable 
 nopure_model <- glm(OSf ~ agef + Sex_Neuterf, data = OS, family = binomial(link="logit"))
-lrtest(multi_model, noage_model)
+lrtest(multi_model, nopure_model)
+
+#Run the model including pairwise interactions between purebred and age and see if these are significant
+multi_model_I <- glm(OSf ~ purebredf*agef + Sex_Neuterf, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+# write.table(MMI_res, "./analysis/purebredageinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without, this shows whether the purebred*age interaction is important 
+lrtest(multi_model, multi_model_I)
+
+#Repeat for purebred*sex_neuter
+multi_model_I <- glm(OSf ~ purebredf*Sex_Neuterf +agef, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+# write.table(MMI_res, "./analysis/purebredsexneuterinteraction.txt", row.names = T, col.names= T, sep = '\t')
+lrtest(multi_model, multi_model_I)
+
+#repeat for age*sexneuter
+multi_model_I <- glm(OSf ~ purebredf + Sex_Neuterf*agef, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+# write.table(MMI_res, "./analysis/agesexneuterinteraction.txt", row.names = T, col.names= T, sep = '\t')
+lrtest(multi_model, multi_model_I)
+
+##so we need to report both without and with all pairwise interactions in the final model
+
+multi_model_purebred <- glm(OSf ~ (purebredf+Sex_Neuterf+agef)^2, data = OS, family = binomial(link="logit"))
+
+multi_model <- multi_model_purebred
+
+#Tabulate the  results - example shown for the model with interactions, report for the no-interaction model created earlier
+#named multi_pure_noI
 
 Breed_res <- cbind(summary(multi_model)$coefficients)
 Breed_res <- as.data.frame(Breed_res)
@@ -900,7 +943,7 @@ colnames(Breed_res)
 Breed_res <- Breed_res[,c(8,6,7,9)]
 Breed_res$pvalue[Breed_res$pvalue == 0.000] <- "<0.001"
 
-# write.table(Breed_res, "./analysis/multi_reg_purebred.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+# write.table(Breed_res, "./analysis/multi_reg_purebred_Iact.txt", row.names = F, col.names = T, quote = F, sep = '\t')
 
 #get the area under the roc curve 
 
@@ -954,8 +997,35 @@ OS <- OS[,6:9]
 
 multi_model <- glm(OSf ~. , data = OS, family = binomial(link="logit"))
 
+#save the model without interactions 
+multi_KC_noI <- multi_model
+
+# write.table(multi_KC_noI, "./analysis/multi_reg_KC.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+
 #get the lrtest for the KC variable, note, the comparator is the same as nopure_model (OSf over age and sex/neuter) so just keep using nopure_model 
 lrtest(multi_model, nopure_model)
+
+#Run the model including pairwise interactions between KC and age and see if these are significant
+multi_model_I <- glm(OSf ~ KCf*agef + Sex_Neuterf, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+# write.table(MMI_res, "./analysis/KCageinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#Run the model including pairwise interactions between KC and Sex_Neuter and see if these are significant
+multi_model_I <- glm(OSf ~ KCf*Sex_Neuterf +agef, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+# write.table(MMI_res, "./analysis/KCSexNinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#Therefore use interactions in the model 
+
+multi_model <- glm(OSf ~ (KCf+Sex_Neuterf+agef)^2, data = OS, family = binomial(link="logit"))
 
 Breed_res <- cbind(summary(multi_model)$coefficients)
 Breed_res <- as.data.frame(Breed_res)
@@ -982,7 +1052,7 @@ Breed_res$pvalue <- round(Breed_res$`Pr(>|z|)`, 3)
 Breed_res <- Breed_res[,c(8,6,7,9)]
 Breed_res$pvalue[Breed_res$pvalue == 0.000] <- "<0.001"
 
-# write.table(Breed_res, "./analysis/multi_reg_KCgroup.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+write.table(Breed_res, "./analysis/multi_reg_KCgroup_Iact.txt", row.names = F, col.names = T, quote = F, sep = '\t')
 
 #get the area under the roc curve 
 
@@ -1036,7 +1106,34 @@ OS <- OS[,6:9]
 
 multi_model <- glm(OSf ~. , data = OS, family = binomial(link="logit"))
 
+multi_dachs_noI <- multi_model
+
+# write.table(multi_dachs_noI, "./analysis/multi_reg_Dachs.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+
 lrtest(multi_model, nopure_model)
+
+#Run the model including pairwise interactions between Dachs and age and see if these are significant
+multi_model_I <- glm(OSf ~ Dachsf*agef + Sex_Neuterf, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+write.table(MMI_res, "./analysis/Dachsageinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#Run the model including pairwise interactions between Dachs and SN and see if these are significant
+multi_model_I <- glm(OSf ~ Dachsf*Sex_Neuterf + agef, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+write.table(MMI_res, "./analysis/DachsSexNinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#Therefore use interactions in the model 
+multi_model_dachs <- glm(OSf ~ (Dachsf+Sex_Neuterf+agef)^2, data = OS, family = binomial(link="logit"))
+
+multi_model <- multi_model_dachs
 
 Breed_res <- cbind(summary(multi_model)$coefficients)
 Breed_res <- as.data.frame(Breed_res)
@@ -1063,7 +1160,7 @@ Breed_res$pvalue <- round(Breed_res$`Pr(>|z|)`,3)
 Breed_res <- Breed_res[,c(8,6,7,9)]
 Breed_res$pvalue[Breed_res$pvalue == 0.000] <- "<0.001"
 
-# write.table(Breed_res, "./analysis/multi_reg_Dachs.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+# write.table(Breed_res, "./analysis/multi_reg_Dachs_Iact.txt", row.names = F, col.names = T, quote = F, sep = '\t')
 
 #get the area under the roc curve 
 
@@ -1117,7 +1214,35 @@ OS <- OS[,6:9]
 
 multi_model <- glm(OSf ~. , data = OS, family = binomial(link="logit"))
 
+multi_spaniel_noI <- multi_model
+
+# write.table(multi_spaniel_noI, "./analysis/multi_reg_Spaniel.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+
 lrtest(multi_model, nopure_model)
+
+#Run the model including pairwise interactions 
+multi_model_I <- glm(OSf ~ Spanielf*agef + Sex_Neuterf, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+write.table(MMI_res, "./analysis/Spanielageinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#Run the model including pairwise interactions 
+multi_model_I <- glm(OSf ~ Spanielf*Sex_Neuterf + agef, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+write.table(MMI_res, "./analysis/SpanielSexNinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#Therefore use interactions in the model 
+
+spaniel_multi_model <- glm(OSf ~ (Spanielf+Sex_Neuterf+agef)^2, data = OS, family = binomial(link="logit"))
+
+multi_model <- spaniel_multi_model
 
 Breed_res <- cbind(summary(multi_model)$coefficients)
 Breed_res <- as.data.frame(Breed_res)
@@ -1144,7 +1269,7 @@ Breed_res$pvalue <- round(Breed_res$`Pr(>|z|)`, 3)
 Breed_res <- Breed_res[,c(8,6,7,9)]
 Breed_res$pvalue[Breed_res$pvalue == 0.000] <- "<0.001"
 
-# write.table(Breed_res, "./analysis/multi_reg_Spaniel.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+# write.table(Breed_res, "./analysis/multi_reg_Spaniel_Iact.txt", row.names = F, col.names = T, quote = F, sep = '\t')
 
 #get the area under the roc curve 
 
@@ -1198,7 +1323,35 @@ OS <- OS[,6:9]
 
 multi_model <- glm(OSf ~. , data = OS, family = binomial(link="logit"))
 
+multi_skull_noI <- multi_model
+
+# write.table(multi_skull_noI, "./analysis/multi_reg_Skull.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+
 lrtest(multi_model, nopure_model)
+
+#Run the model including pairwise interactions 
+multi_model_I <- glm(OSf ~ Skullf*agef + Sex_Neuterf, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+write.table(MMI_res, "./analysis/Skullageinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#Run the model including pairwise interactions 
+multi_model_I <- glm(OSf ~ Skullf*Sex_Neuterf + agef, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+write.table(MMI_res, "./analysis/SkullSexNinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#Therefore use interactions in the model 
+
+multi_model_skull <- glm(OSf ~ (Skullf+Sex_Neuterf+agef)^2, data = OS, family = binomial(link="logit"))
+
+multi_model <- multi_model_skull
 
 Breed_res <- cbind(summary(multi_model)$coefficients)
 Breed_res <- as.data.frame(Breed_res)
@@ -1225,7 +1378,7 @@ Breed_res$pvalue <- round(Breed_res$`Pr(>|z|)`,3)
 Breed_res <- Breed_res[,c(8,6,7,9)]
 Breed_res$pvalue[Breed_res$pvalue == 0.000] <- "<0.001"
 
-# write.table(Breed_res, "./analysis/multi_reg_Skull.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+# write.table(Breed_res, "./analysis/multi_reg_Skull_Iact.txt", row.names = F, col.names = T, quote = F, sep = '\t')
 
 #get the area under the roc curve 
 
@@ -1276,7 +1429,35 @@ OS <- OS[,6:9]
 
 multi_model <- glm(OSf ~. , data = OS, family = binomial(link="logit"))
 
+multi_chondro_noI <- multi_model
+
+# write.table(multi_chondro_noI, "./analysis/multi_reg_chondro.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+
 lrtest(multi_model, nopure_model)
+
+#Run the model including pairwise interactions between Spaniel and age and see if these are significant
+multi_model_I <- glm(OSf ~ chondrf*agef + Sex_Neuterf, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+write.table(MMI_res, "./analysis/chondroageinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#Run the model including pairwise interactions 
+multi_model_I <- glm(OSf ~ chondrf*Sex_Neuterf + agef, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+write.table(MMI_res, "./analysis/chondroSexNinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#Therefore use interactions in the model 
+
+multi_model_chondro <- glm(OSf ~ (chondrf+Sex_Neuterf+agef)^2, data = OS, family = binomial(link="logit"))
+
+multi_model <- multi_model_chondro
 
 Breed_res <- cbind(summary(multi_model)$coefficients)
 Breed_res <- as.data.frame(Breed_res)
@@ -1302,7 +1483,7 @@ Breed_res$pvalue <- round(Breed_res$`Pr(>|z|)`, 3)
 
 Breed_res <- Breed_res[,c(8,6,7,9)]
 Breed_res$pvalue[Breed_res$pvalue == 0.000] <- "<0.001"
-# write.table(Breed_res, "./analysis/multi_reg_chondro.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+# write.table(Breed_res, "./analysis/multi_reg_chondro_Iact.txt", row.names = F, col.names = T, quote = F, sep = '\t')
 
 #get the area under the roc curve 
 
@@ -1354,7 +1535,33 @@ OS <- OS[,6:9]
 
 multi_model <- glm(OSf ~. , data = OS, family = binomial(link="logit"))
 
+multi_mass_noI <- multi_model
+
+# write.table(multi_mass_noI, "./analysis/multi_reg_bodymass.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+
 lrtest(multi_model, nopure_model)
+
+#Run the model including pairwise interactions and see if these are significant
+multi_model_I <- glm(OSf ~ massf*agef + Sex_Neuterf, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+write.table(MMI_res, "./analysis/massageinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+multi_model_I <- glm(OSf ~ massf*Sex_Neuterf + agef, data = OS, family = binomial(link="logit"))
+MMI_res <- cbind(summary(multi_model_I)$coefficients)
+MMI_res <- as.data.frame(MMI_res)
+write.table(MMI_res, "./analysis/massSexNinteraction.txt", row.names = T, col.names= T, sep = '\t')
+
+#use an lrtest to compare the model with interactions to the model without
+lrtest(multi_model, multi_model_I)
+
+#therefore use interactions in the model
+multi_model_mass <- glm(OSf ~ (massf+Sex_Neuterf+agef)^2, data = OS, family = binomial(link="logit"))
+
+multi_model <- multi_model_mass
 
 Breed_res <- cbind(summary(multi_model)$coefficients)
 Breed_res <- as.data.frame(Breed_res)
@@ -1381,7 +1588,7 @@ Breed_res$pvalue <- round(Breed_res$`Pr(>|z|)`, 3)
 Breed_res <- Breed_res[,c(8,6,7,9)]
 Breed_res$pvalue[Breed_res$pvalue == 0.000] <- "<0.001"
 
-# write.table(Breed_res, "./analysis/multi_reg_bodymass.txt", row.names = F, col.names = T, quote = F, sep = '\t')
+# write.table(Breed_res, "./analysis/multi_reg_bodymass_Iact.txt", row.names = F, col.names = T, quote = F, sep = '\t')
 
 #get the area under the roc curve 
 
